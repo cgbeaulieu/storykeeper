@@ -1,0 +1,13 @@
+# Storykeeper — deliberately short.
+#
+# Everything here must work offline after first install. Before adding anything,
+# check whether it makes network calls or reports telemetry at runtime; if it
+# does, write the code by hand instead. See CLAUDE.md, and record the finding in
+# the telemetry table in SPEC.md.
+
+fastembed>=0.4      # local ONNX embeddings (BAAI/bge-small-en-v1.5), CPU-only
+numpy>=1.26         # cosine similarity over the flat vector file
+requests>=2.31      # talking to Ollama on localhost:11434
+pypdf>=4.0          # reading .pdf files - pure Python, no network behaviour
+
+# .docx, .odt, .rtf and Scrivener are read with the standard library on purpose.

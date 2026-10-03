@@ -1,0 +1,13 @@
+# Line endings are not cosmetic here: this repo ships scripts for two different
+# operating systems, and each one is broken by the other's convention.
+#
+# A .sh file with Windows line endings fails on a Mac with a confusing error
+# about a missing interpreter, which is exactly the kind of first-five-minutes
+# problem that makes someone give up on a tool.
+
+*.sh    text eol=lf
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+
+# Everything else: normalise to LF in the repository, check out natively.
+*       text=auto

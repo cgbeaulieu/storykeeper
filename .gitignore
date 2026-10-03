@@ -1,0 +1,30 @@
+# ---------------------------------------------------------------------------
+# The writer's material and everything derived from it. NEVER COMMIT THESE.
+# The whole point of this project is that the manuscript stays on their machine.
+# ---------------------------------------------------------------------------
+library/*
+!library/README.md
+index/
+*.scriv/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local model caches (large, machine-specific)
+.fastembed_cache/
+models/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local config overrides
+storykeeper.local.toml

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "storykeeper"
+version = "1.0.0"
+description = "A fully local question-answering assistant over your own manuscript and notes."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+dependencies = [
+    "fastembed>=0.4",
+    "numpy>=1.26",
+    "requests>=2.31",
+    "pypdf>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/cgbeaulieu/storykeeper"
+
+[project.scripts]
+storykeeper = "storykeeper.cli:entry_point"
+
+[tool.setuptools]
+packages = ["storykeeper"]

@@ -1,0 +1,102 @@
+# ---------------------------------------------------------------------------
+# Storykeeper configuration
+#
+# Everything here has a sensible default, so you can ignore this file entirely
+# until you want to change something. The two settings most worth knowing about
+# are [llm].model (which AI model answers your questions) and [llm].num_ctx
+# (how much of your writing it can read at once).
+#
+# To keep personal tweaks out of git, copy this file to storykeeper.local.toml
+# and edit that instead — it overrides this one, setting by setting.
+# ---------------------------------------------------------------------------
+
+[paths]
+library = "library"      # where your writing lives
+index    = "index"       # where the search index is stored
+
+[library]
+# Which folder means which kind of material. The folder a file sits in decides
+# how Storykeeper treats it. Add your own folder names on the left.
+doc_type_folders = { manuscript = "manuscript", manuscripts = "manuscript", book = "manuscript", draft = "manuscript", drafts = "manuscript", chapters = "manuscript", characters = "character", character = "character", cast = "character", people = "character", history = "history", timeline = "history", timelines = "history", backstory = "history", culture = "culture", worldbuilding = "culture", world = "culture", religion = "culture", language = "culture", politics = "culture", factions = "culture", locations = "location", location = "location", places = "location", geography = "location", maps = "location", plot = "plot", outline = "plot", outlines = "plot", structure = "plot", beats = "plot", notes = "other", other = "other" }
+skip_hidden  = true
+max_file_mb  = 50        # skip anything larger; nothing you write will be
+
+[embedding]
+# The local model that turns text into searchable meaning. Downloaded once
+# (~130 MB), then never touches the network again. Changing this forces a full
+# re-index.
+model     = "BAAI/bge-small-en-v1.5"
+dim       = 384
+threads   = 0            # 0 = let the library decide
+batch_size = 32
+cache_dir = "models"     # where the downloaded model is kept
+offline   = "auto"       # auto | always | never — "auto" goes fully offline
+                         # once the model has loaded successfully once
+
+[chunking]
+# How your documents get cut into passages. Storykeeper splits on real
+# structure first (headings, chapters, scene breaks, blank-line entries) and
+# only falls back to these sizes inside an oversized section.
+target_chars  = 1000
+max_chars     = 1800
+overlap_chars = 150
+min_chars     = 0        # drop passages shorter than this. 0 keeps everything
+                         # with words in it - a one-line note is still findable
+
+[retrieval]
+k          = 8           # how many passages to retrieve per question
+candidates = 200         # how many to rescore before picking the final k
+
+# Hybrid search. Fiction runs on invented names, and small embedding models are
+# weak on rare words, so meaning-based search alone will miss "Kestrel" sitting
+# in a chunk that otherwise talks about "the girl". These two weights blend
+# meaning-similarity with literal word matching. Raise literal_weight if exact
+# names aren't surfacing; raise semantic_weight if it's too literal-minded.
+semantic_weight = 0.62
+literal_weight  = 0.38
+
+# Extra credit for passages that literally contain the unusual names in your
+# question. This is what guarantees a proper noun always surfaces.
+proper_noun_boost = 0.30
+phrase_boost      = 0.18   # for "quoted phrases" and short exact queries
+
+max_per_file  = 3        # stop one long file from taking every slot
+snippet_chars = 700
+
+# A standing thumb on the scale per kind of material. 0.0 = no preference.
+doc_type_bonus = { manuscript = 0.0, character = 0.0, history = 0.0, culture = 0.0, location = 0.0, plot = 0.0, other = -0.01 }
+
+# Question-shape hints. If your question contains one of these words, passages
+# of that kind get a small nudge. Deliberately small — it breaks ties, it does
+# not override the search.
+intent_bonus = 0.07
+[retrieval.intent_cues]
+character  = ["who is", "who's", "eyes", "hair", "look like", "appearance", "age", "personality", "voice", "wear", "wearing", "scar", "family", "sister", "brother", "mother", "father", "motivation", "want", "backstory"]
+manuscript = ["chapter", "scene", "on the page", "written", "wrote", "draft", "prose", "dialogue", "happens in", "in the book"]
+history    = ["when did", "timeline", "year", "before", "after", "history", "ago", "past", "war", "founded"]
+culture    = ["custom", "religion", "god", "gods", "language", "ritual", "tradition", "law", "guild", "faction", "politics", "believe"]
+location   = ["where", "city", "town", "village", "river", "mountain", "road", "map", "geography", "north", "south", "east", "west", "castle", "keep"]
+plot       = ["outline", "arc", "act", "beat", "ending", "resolve", "subplot", "structure", "planned", "plan to"]
+
+[llm]
+# The local AI model that writes the answers, served by Ollama.
+#
+#   under 16 GB RAM, no graphics card ...... "llama3.2:3b"    (fast, shallow)
+#   16 GB RAM, no graphics card ............ "llama3.1:8b"    (the default)
+#   8-12 GB of video memory ................ "mistral-nemo:12b" or "phi4:14b"
+#   16-24 GB of video memory ............... "qwen2.5:32b" or "gemma2:27b"
+#
+# Whatever you choose, install it once with:  ollama pull <name>
+model = "llama3.1:8b"
+host  = "http://localhost:11434"
+
+# How much text the model can hold at once. Ollama's own default is small and
+# will silently throw away most of the passages Storykeeper retrieved, which
+# makes the tool look broken for no visible reason. Do not remove this.
+num_ctx = 8192
+
+temperature       = 0.2   # low: this job is recall, not invention
+top_p             = 0.9
+timeout_seconds   = 600
+max_context_chars = 14000 # passages are trimmed to fit this before asking
+keep_alive        = "10m" # keep the model warm between questions
