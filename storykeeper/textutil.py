@@ -96,7 +96,12 @@ def fold_preserving_offsets(text: str) -> str:
     return folded if len(folded) == len(text) else text
 
 
-_TOKEN = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z]+)*")
+# Any letter or digit in any script, so "Séverine" and "Zoë" stay whole words.
+_TOKEN = re.compile(r"[^\W_]+(?:'[^\W_]+)*")
+
+#: Raise this whenever :func:`tokenize` would split the same text differently.
+#: A literal index saved under another version is rebuilt when it is loaded.
+TOKENIZER_VERSION = 2
 
 
 def tokenize(text: str) -> list[str]:

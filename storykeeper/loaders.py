@@ -254,12 +254,14 @@ _RTF_TOKEN = re.compile(
 )
 
 # Control words whose whole group is metadata: fonts, colours, styles, embedded
-# pictures, revision bookkeeping. None of it is writing.
+# pictures, revision bookkeeping. None of it is writing. A hyperlink is a
+# ``\field`` holding the address in ``\fldinst`` and the words on the page in
+# ``\fldrslt``, so only the address is skipped.
 _RTF_SKIP_GROUPS = frozenset("""
 fonttbl colortbl stylesheet listtable listoverridetable rsidtbl generator info
 pict object objdata result themedata colorschememapping latentstyles datastore
 xmlnstbl mmathPr filetbl revtbl userprops bkmkstart bkmkend header footer
-headerl headerr footerl footerr footnote ftnsep xe tc field fldinst nonshppict
+headerl headerr footerl footerr footnote ftnsep xe tc fldinst nonshppict
 shppict do shpinst
 """.split())
 
@@ -269,8 +271,12 @@ _RTF_LITERALS = {
     "lquote": "\u2018", "rquote": "\u2019",
     "ldblquote": "\u201c", "rdblquote": "\u201d",
     "bullet": "\u2022", "endash": "\u2013", "emdash": "\u2014",
-    "emspace": " ", "enspace": " ", "qmspace": " ", "~": "\u00a0",
-    "_": "-", "-": "", ":": "", "|": "",
+    "emspace": " ", "enspace": " ", "qmspace": " ",
+    # Escaped symbols: non-breaking space, non-breaking hyphen, optional
+    # hyphen, index subentry, formula. A backslash before a line break is a
+    # paragraph break - TextEdit, and so Mac Scrivener, writes one per paragraph.
+    "~": "\u00a0", "_": "-", "-": "", ":": "", "|": "",
+    "\n": "\n", "\r": "\n",
 }
 
 
@@ -356,6 +362,8 @@ def rtf_to_text(data: bytes) -> str:
                     skip_until_depth = depth
             elif not skipping and literal in "{}\\":
                 out.append(literal)
+            elif not skipping and literal in _RTF_LITERALS:
+                out.append(_RTF_LITERALS[literal])
             continue
 
         if text is not None:
@@ -375,7 +383,26 @@ def load_rtf(path: Path) -> list[LoadedDoc]:
     return [LoadedDoc(text=rtf_to_text(path.read_bytes()), title=pretty_title(path))]
 
 
-register_loader([".rtf", ".rtfd"], load_rtf)
+register_loader([".rtf"], load_rtf)
+
+
+def load_rtfd(path: Path) -> list[LoadedDoc]:
+    """A TextEdit document with pictures: a folder holding TXT.rtf and the images.
+
+    On a Mac it looks like one file, so it is titled after the bundle - not
+    after the TXT.rtf inside it, which every one of these has.
+    """
+    inner = path / "TXT.rtf"
+    if not inner.is_file():
+        raise DocumentError(
+            "This .rtfd document has no text inside that Storykeeper can find.",
+            "Open it in TextEdit and use File > Save As to save a copy as "
+            "Rich Text (.rtf), then put that copy in your library folder.",
+        )
+    return [LoadedDoc(text=rtf_to_text(inner.read_bytes()), title=pretty_title(path))]
+
+
+register_loader([".rtfd"], load_rtfd, container=True)
 
 
 # ---------------------------------------------------------------------------

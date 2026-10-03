@@ -111,8 +111,15 @@ class Embedder:
     def _load_error(self, exc: Exception) -> StorykeeperError:
         text = f"{type(exc).__name__}: {exc}"
         lowered = text.lower()
-        if any(word in lowered for word in
-               ("connection", "network", "resolve", "timed out", "offline", "proxy", "ssl")):
+        # fastembed 0.8 says "Model X is not supported" for a name it does not
+        # know, before any download is attempted.
+        unknown = "not supported" in lowered or "unknown model" in lowered
+        network = any(word in lowered for word in
+                      ("connection", "network", "resolve", "timed out", "offline", "proxy", "ssl"))
+        # fastembed 0.8 also swallows the real network error and reports only
+        # that the model "could not be loaded from any source". On a first run,
+        # when a download was the whole point, that means no internet.
+        if not unknown and (network or (self.will_download and "from any source" in lowered)):
             return StorykeeperError(
                 "The search model has not been downloaded yet, and the internet "
                 "could not be reached to fetch it.",
@@ -120,7 +127,7 @@ class Embedder:
                 "about 130 MB, once. Connect and run 'storykeeper index' again. "
                 "After that it never goes online, even to check for updates.",
             )
-        if "not found" in lowered or "unknown model" in lowered:
+        if unknown or "not found" in lowered:
             return StorykeeperError(
                 f"There is no search model called '{self.cfg.model}'.",
                 "Check the 'model' line under [embedding] in storykeeper.toml. "

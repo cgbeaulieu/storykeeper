@@ -173,10 +173,10 @@ Sub-subfolders are fine. You don't have to use every folder, and you don't have
 to reorganise anything you already have. If in doubt, put it in `other/` — it's
 still fully searchable.
 
-**File types it reads:** `.txt`, `.md`, `.docx` (Word), `.rtf`, `.odt`, `.pdf`,
-and Scrivener projects (`.scriv`). Scanned PDFs — pictures of pages rather than
-text — can't be read; a quick test is whether you can select a sentence in it
-with your mouse.
+**File types it reads:** `.txt`, `.md`, `.docx` (Word), `.rtf` and `.rtfd`
+(TextEdit), `.odt`, `.pdf`, and Scrivener projects (`.scriv`). Scanned PDFs —
+pictures of pages rather than text — can't be read; a quick test is whether you
+can select a sentence in it with your mouse.
 
 ### Read it in
 

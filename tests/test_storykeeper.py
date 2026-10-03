@@ -14,6 +14,7 @@ test that honestly is to make the semantic model actively unhelpful.
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import tempfile
@@ -26,10 +27,17 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from storykeeper.chunk import chunk_document, find_sections
-from storykeeper.config import ChunkingConfig, Config, load_config
+from storykeeper.config import ChunkingConfig, Config, EmbeddingConfig, load_config
+from storykeeper.embed import Embedder
 from storykeeper.errors import StorykeeperError
 from storykeeper.index import build, doc_type_for, load_for_search, load_store
-from storykeeper.lexicon import bm25, build_lexicon, presence_fraction
+from storykeeper.lexicon import (
+    LEXICON_FILE,
+    bm25,
+    build_lexicon,
+    load_lexicon,
+    presence_fraction,
+)
 from storykeeper.loaders import DocumentError, load_document, rtf_to_text
 from storykeeper.search import Searcher, find_literal
 from storykeeper.textutil import (
@@ -74,6 +82,26 @@ class StubEmbedder:
 
     def embed_query(self, text):
         return self._vector(text)
+
+
+def write_scrivener(project: Path, documents: list[tuple[str, str, bytes]]) -> None:
+    """A minimal Scrivener 3 project: (uuid, binder title, content.rtf) per item."""
+    items = "".join(
+        f'<BinderItem UUID="{uuid}" Type="Text"><Title>{title}</Title></BinderItem>'
+        for uuid, title, _ in documents
+    )
+    project.mkdir(parents=True, exist_ok=True)
+    (project / (project.stem + ".scrivx")).write_text(
+        '<?xml version="1.0"?><ScrivenerProject><Binder>'
+        '<BinderItem UUID="DRAFT" Type="DraftFolder"><Title>Draft</Title>'
+        f"<Children>{items}</Children></BinderItem>"
+        "</Binder></ScrivenerProject>",
+        encoding="utf-8",
+    )
+    for uuid, _, rtf in documents:
+        folder = project / "Files" / "Data" / uuid
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "content.rtf").write_bytes(rtf)
 
 
 class TempProject(unittest.TestCase):
@@ -135,6 +163,11 @@ class TestTextUtil(unittest.TestCase):
         self.assertEqual(len(folded), len(sample))
         self.assertIn("-then", folded)
 
+    def test_accented_names_are_single_tokens(self):
+        self.assertEqual(tokenize("Séverine met Zoë"), ["séverine", "met", "zoë"])
+        self.assertEqual(tokenize("Séverine's boat"), ["séverine", "boat"])
+        self.assertEqual([t for t, _ in query_terms("Who is Zoë?")], ["who", "is", "zoë"])
+
 
 # ---------------------------------------------------------------------------
 # chunking
@@ -185,6 +218,33 @@ class TestChunking(unittest.TestCase):
         chunks = chunk_document(text, doc_type="manuscript", cfg=self.cfg)
         self.assertEqual(len(chunks), 2)
         self.assertNotIn("B.", chunks[0].text)
+
+    def test_dash_scene_break_is_not_taken_for_a_heading_underline(self):
+        for divider in ("---", "==="):
+            text = f"Guild A is red.\n\n{divider}\n\nGuild B is blue.\n"
+            chunks = chunk_document(text, doc_type="culture", cfg=self.cfg)
+            self.assertEqual(
+                [c.text for c in chunks], ["Guild A is red.", "Guild B is blue."], divider
+            )
+
+    def test_attribute_line_after_a_blank_does_not_start_a_new_entry(self):
+        text = (
+            "Maren Vesh\n\n"
+            "Height: Tall\nEyes: grey\n\n"
+            "Kestrel Dunn\n\n"
+            "Height: Short\n"
+        )
+        chunks = chunk_document(text, doc_type="character", cfg=self.cfg)
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual(chunks[0].section, "Maren Vesh")
+        self.assertIn("Height: Tall", chunks[0].text)
+        self.assertEqual(chunks[1].section, "Kestrel Dunn")
+        self.assertIn("Height: Short", chunks[1].text)
+
+    def test_bare_label_still_starts_an_entry(self):
+        text = "Maren Vesh:\nGrey eyes.\n\nKestrel Dunn:\nRed hair.\n"
+        chunks = chunk_document(text, doc_type="character", cfg=self.cfg)
+        self.assertEqual([c.section for c in chunks], ["Maren Vesh", "Kestrel Dunn"])
 
     def test_all_caps_chapter_line_splits_a_plain_text_manuscript(self):
         text = "CHAPTER THREE\n\nSnow came early.\n\nCHAPTER FOUR\n\nThen it stopped.\n"
@@ -243,6 +303,46 @@ class TestLoaders(unittest.TestCase):
         self.assertIn("Second line.", text)
         self.assertNotIn("fonttbl", text)
         self.assertNotIn("generator", text)
+
+    def test_rtf_cocoa_paragraph_breaks_are_kept(self):
+        # TextEdit, and so Mac Scrivener, ends a paragraph with a backslash and
+        # a real line break rather than \par.
+        for newline in (b"\n", b"\r\n"):
+            source = (
+                b"{\\rtf1\\ansi\\ansicpg1252\\cocoartf2709{\\fonttbl\\f0\\fswiss Helvetica;}"
+                + newline + b"\\f0\\fs24 First paragraph.\\" + newline
+                + b"\\" + newline + b"Second paragraph.}"
+            )
+            text = rtf_to_text(source)
+            self.assertIn("First paragraph.\n", text)
+            self.assertNotIn("paragraph.Second", text)
+            self.assertIn("Second paragraph.", text)
+
+    def test_rtf_non_breaking_characters_survive(self):
+        text = rtf_to_text(rb"{\rtf1\ansi Mr.\~Dunn crossed back\_over. Care\-ful.}")
+        self.assertIn("Mr. Dunn", text)
+        self.assertIn("back-over.", text)
+        self.assertIn("Careful.", text)
+
+    def test_rtf_hyperlink_keeps_its_visible_text(self):
+        source = (
+            rb'{\rtf1\ansi See {\field{\*\fldinst{HYPERLINK "http://example.com"}}'
+            rb"{\fldrslt the harbour map}} first.}"
+        )
+        text = rtf_to_text(source)
+        self.assertIn("See the harbour map first.", text)
+        self.assertNotIn("HYPERLINK", text)
+        self.assertNotIn("example.com", text)
+
+    def test_rtfd_bundle_is_read_and_titled_after_itself(self):
+        bundle = self.dir / "harbour_notes.rtfd"
+        bundle.mkdir()
+        (bundle / "TXT.rtf").write_bytes(rb"{\rtf1\ansi The tide comes in twice.\par}")
+        (bundle / "map.png").write_bytes(b"\x89PNG not really")
+        docs = load_document(bundle)
+        self.assertEqual(len(docs), 1)
+        self.assertEqual(docs[0].title, "Harbour Notes")
+        self.assertIn("The tide comes in twice.", docs[0].text)
 
     def test_docx_headings_become_markdown(self):
         path = self.dir / "chapter.docx"
@@ -402,6 +502,53 @@ class TestIncrementalIndex(TempProject):
         self.assertEqual(store.vectors.shape[0], len(store.rows))
         self.assertEqual(sum(f.chunks for f in store.files), len(store.rows))
 
+    def test_scrivener_binder_titles_survive_a_second_run(self):
+        write_scrivener(self.library / "manuscript" / "Book.scriv", [
+            ("AAA", "The Low Bridge", rb"{\rtf1\ansi The pilings stood clear.\par}"),
+            ("BBB", "The Crossing", rb"{\rtf1\ansi Ice to the far bank.\par}"),
+        ])
+        self.index()
+        self.index()
+        titles = sorted(r["title"] for r in load_store(self.cfg).rows)
+        self.assertEqual(titles, ["The Crossing", "The Low Bridge"])
+
+        # A move reuses the vectors through the same path, so check it too.
+        (self.library / "history").mkdir()
+        shutil.move(
+            str(self.library / "manuscript" / "Book.scriv"),
+            str(self.library / "history" / "Book.scriv"),
+        )
+        self.embedder.calls = 0
+        self.index()
+        self.assertEqual(self.embedder.calls, 0)
+        titles = sorted(r["title"] for r in load_store(self.cfg).rows)
+        self.assertEqual(titles, ["The Crossing", "The Low Bridge"])
+
+    def test_rtfd_bundle_is_one_document_not_a_folder(self):
+        bundle = self.library / "locations" / "harbour.rtfd"
+        bundle.mkdir(parents=True)
+        (bundle / "TXT.rtf").write_bytes(rb"{\rtf1\ansi The tide comes in twice.\par}")
+        self.index()
+        store = load_store(self.cfg)
+        self.assertEqual([f.path for f in store.files], ["locations/harbour.rtfd"])
+        self.assertEqual(store.rows[0]["title"], "Harbour")
+
+    def test_index_from_an_older_version_is_reread_with_an_honest_message(self):
+        self.populate()
+        self.index()
+        manifest_path = self.cfg.index_dir / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["format"] = 1
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        said: list[str] = []
+        self.embedder.calls = 0
+        report = build(self.cfg, say=said.append, embedder=self.embedder)
+        self.assertTrue(report.rebuilt)
+        self.assertEqual(self.embedder.calls, 3)
+        self.assertTrue(any("updated" in line for line in said), said)
+        self.assertFalse(any("half-written" in line for line in said), said)
+
     def test_changing_chunk_settings_forces_a_rebuild(self):
         self.populate()
         self.index()
@@ -510,6 +657,25 @@ class TestHybridSearch(TempProject):
         self.assertLessEqual(counts["manuscript/long.md"], 2)
 
 
+class TestTokenizerUpgrade(TempProject):
+    def test_lexicon_from_an_older_tokenizer_is_rebuilt_on_load(self):
+        self.write("characters/severine.md", "# Notes\n\nSéverine keeps the lighthouse.\n")
+        self.write("characters/other.md", "# Other\n\nNobody else lives there.\n")
+        self.index()
+
+        # Simulate a literal index written before tokenizing understood accents.
+        npz = self.cfg.index_dir / LEXICON_FILE
+        with np.load(npz) as data:
+            old = {key: data[key] for key in data.files if key != "tokenizer"}
+        with open(npz, "wb") as fh:
+            np.savez(fh, **old)
+        self.assertIsNone(load_lexicon(self.cfg.index_dir, len(load_store(self.cfg).rows)))
+
+        hits = self.searcher().search("Where does Séverine live?", k=1, use_semantic=False)
+        self.assertIn("Séverine", hits[0].text)
+        self.assertIn("séverine", hits[0].names_matched)
+
+
 class TestLiteralFind(TempProject):
     def test_overlapping_passages_do_not_double_count(self):
         body = " ".join(f"Filler sentence {i}." for i in range(120))
@@ -535,6 +701,52 @@ class TestLiteralFind(TempProject):
         match = find_literal(store, "Winter Crossing")[0]
         source = (self.library / "manuscript" / "a.md").read_text(encoding="utf-8")
         self.assertEqual(source[match.offset:match.offset + match.length], "Winter Crossing")
+
+    def test_same_offset_in_two_binder_documents_counts_twice(self):
+        # Each document in a Scrivener project counts its offsets from zero, so
+        # two chapters can hold a match at the very same position.
+        write_scrivener(self.library / "manuscript" / "Book.scriv", [
+            ("AAA", "Part A", rb"{\rtf1\ansi The Ninefold Court met.\par}"),
+            ("BBB", "Part B", rb"{\rtf1\ansi The Ninefold Court fell.\par}"),
+        ])
+        self.index()
+        matches = find_literal(load_store(self.cfg), "Ninefold Court")
+        self.assertEqual(len(matches), 2)
+        self.assertEqual(matches[0].offset, matches[1].offset)
+        self.assertEqual({m.row["doc_id"] for m in matches}, {"AAA", "BBB"})
+
+
+class TestEmbedErrors(unittest.TestCase):
+    def setUp(self) -> None:
+        self.cache = Path(tempfile.mkdtemp(prefix="storykeeper-models-"))
+        self.embedder = Embedder(EmbeddingConfig(), self.cache)
+        # fastembed 0.8's wording when every download source fails.
+        self.no_source = ValueError(
+            f"Could not load model {EmbeddingConfig().model} from any source."
+        )
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.cache, ignore_errors=True)
+
+    def test_first_run_without_internet_says_connect_once(self):
+        self.assertTrue(self.embedder.will_download)
+        error = self.embedder._load_error(self.no_source)
+        self.assertIn("internet", str(error))
+
+    def test_missing_cache_after_a_good_run_is_not_blamed_on_the_network(self):
+        (self.cache / ".storykeeper-models.json").write_text(
+            json.dumps({EmbeddingConfig().model: True}), encoding="utf-8"
+        )
+        error = self.embedder._load_error(self.no_source)
+        self.assertNotIn("internet", str(error))
+        self.assertIn("models", error.hint)
+
+    def test_unsupported_model_name_is_named(self):
+        exc = ValueError(
+            "Model BAAI/made-up is not supported in TextEmbedding. Please check the "
+            "supported models using `TextEmbedding.list_supported_models()`"
+        )
+        self.assertIn("no search model called", str(self.embedder._load_error(exc)))
 
 
 # ---------------------------------------------------------------------------

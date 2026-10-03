@@ -20,8 +20,8 @@ library/
   other/          anything that doesn't fit above
 ```
 
-Supported file types: `.txt`, `.md`, `.docx`, `.rtf`, `.odt`, `.pdf`, and
-Scrivener projects.
+Supported file types: `.txt`, `.md`, `.docx`, `.rtf`, `.rtfd`, `.odt`, `.pdf`,
+and Scrivener projects.
 
 You don't have to use every folder, and you don't have to reorganize anything you
 already have — if in doubt, put it in `other/` and it will still be searchable.

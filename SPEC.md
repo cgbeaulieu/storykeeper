@@ -319,12 +319,13 @@ machine and habits. CLAUDE.md walks an assistant through settling them.
   (`llama3.1:8b`, `num_ctx = 8192`) is a guess at a typical 16 GB machine. It
   should be set to match the actual computer. The first real install — Windows,
   an 8 GB graphics card — used `mistral-nemo:12b`.
-- **File formats.** Loaders exist for `.txt`, `.md`, `.docx`, `.rtf`, `.odt`,
-  `.scriv` and `.pdf`. `.doc`, `.pages`, `.gdoc` and `.one` are recognised and
-  refused with instructions for exporting. The Scrivener loader is built against
-  the v3 `Files/Data/<UUID>/content.rtf` layout with a fallback to the v2
-  `Files/Docs/<ID>.rtf` layout, and has been tested against a fixture rather
-  than a real project — test a real one early if the writer uses Scrivener.
+- **File formats.** Loaders exist for `.txt`, `.md`, `.docx`, `.rtf`, `.rtfd`,
+  `.odt`, `.scriv` and `.pdf`. `.doc`, `.pages`, `.gdoc` and `.one` are
+  recognised and refused with instructions for exporting. The Scrivener loader
+  is built against the v3 `Files/Data/<UUID>/content.rtf` layout with a
+  fallback to the v2 `Files/Docs/<ID>.rtf` layout, and has been tested against
+  a fixture rather than a real project — test a real one early if the writer
+  uses Scrivener.
 - **Folder names.** The `doc_type_folders` map in `storykeeper.toml` assumes the
   suggested folder names. If the writer already has a scheme of their own,
   adding their folder names to that map is a one-line change and far better
@@ -358,3 +359,13 @@ machine and habits. CLAUDE.md walks an assistant through settling them.
   not; comments are ignored. That is the right default, but worth knowing.
 - `find` searches the index, not the files on disk, so it is only as current as
   the last `index` run. Both `find` and `status` say so when files have changed.
+- In a character or location sheet *without headings*, an entry starts at a
+  short title-case line after a blank line, or at a bare label such as
+  `Maren Vesh:`. A line with text after its colon (`Height: Tall`) is read as an
+  attribute of the entry above, so a name written as `Maren Vesh: the
+  harbourmaster` does not start a new entry. Headings avoid the question.
+- Reuse during indexing is keyed on each file's content hash, so a change to how
+  files are read or chunked raises `FORMAT_VERSION` in `index.py`, and the next
+  `index` re-reads and re-embeds everything once. On a large library that run
+  takes minutes rather than seconds. A tokenizer change only rebuilds the
+  literal index, which happens automatically on the next load.
