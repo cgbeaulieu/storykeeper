@@ -50,7 +50,12 @@ from .loaders import (
 VECTORS_FILE = "vectors.f32"
 META_FILE = "meta.jsonl"
 MANIFEST_FILE = "manifest.json"
-FORMAT_VERSION = 1
+#: Raise this whenever a change to reading or chunking means an unchanged file
+#: would now produce different passages. Reuse is keyed on the file's content
+#: hash, so without a bump an old index would keep the old passages forever.
+#: 2: RTF paragraph and hyperlink fixes, .rtfd bundles, entry and scene-break
+#:    chunking fixes, and ``doc_id`` on every row.
+FORMAT_VERSION = 2
 
 #: Files that are Storykeeper's own instructions to the writer, not the writer's
 #: material. Indexing them would put "put your writing here" in search results.
@@ -425,6 +430,7 @@ def chunk_file(scanned: ScannedFile, cfg: Config, report: IndexReport) -> list[d
         ):
             rows.append({
                 "path": scanned.relative,
+                "doc_id": document.doc_id,
                 "doc_type": scanned.doc_type,
                 "title": title,
                 "section": chunk.section,
@@ -457,6 +463,10 @@ def build(
         )
 
     old = None if rebuild else load_store(cfg, require=False)
+    if old is not None and old.format != FORMAT_VERSION:
+        say("Storykeeper has been updated since the last index, so everything is being re-read.")
+        old = None
+        report.rebuilt = True
     if old is not None and not _store_is_consistent(old):
         say("The existing index was left half-written, so it is being rebuilt from scratch.")
         old = None
@@ -547,7 +557,10 @@ def build(
         for row in rows:
             row["path"] = item.relative
             row["doc_type"] = item.doc_type
-            row["title"] = item.title
+            # A Scrivener project's rows carry their own binder titles; only a
+            # row titled after the file itself follows a change to the file.
+            if row.get("title") == record.title:
+                row["title"] = item.title
         store.rows.extend(rows)
         kept_vectors.append(old.vectors[start:end])
         store.files.append(

@@ -137,6 +137,9 @@ def _looks_like_entry_header(line: str) -> bool:
         return True
     if stripped.endswith((".", ",", ";", "!", "?", '"')):
         return False
+    # "Height: Tall" is an attribute of the entry above, not a new person.
+    if ":" in stripped and stripped.split(":", 1)[1].strip("*_ \t"):
+        return False
     words = stripped.replace("*", "").replace("_", "").split()
     if not words or len(words) > 8:
         return False
@@ -240,6 +243,10 @@ def _only_headings_between(text: str, start: int, end: int) -> bool:
     for line in text[start:end].split("\n"):
         if not line.strip():
             continue
+        # "---" and "===" read as setext underlines too, but standing alone in
+        # a gap they are the writer's own divider.
+        if _SCENE_BREAK.match(line):
+            return False
         if not (_ATX.match(line) or _UNDERLINE.match(line)):
             return False
     return True

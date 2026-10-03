@@ -298,7 +298,7 @@ class Searcher:
 @dataclass
 class LiteralMatch:
     row: dict
-    offset: int          # absolute position in the source document
+    offset: int          # absolute position in the source document (row["doc_id"])
     local: int           # position within this passage
     length: int
 
@@ -314,14 +314,16 @@ def find_literal(
 
     Passages overlap slightly by design, so the same sentence can appear in two
     chunks. Matches are de-duplicated by their real position in the source file,
-    which is what makes "how many times did I write this" answerable.
+    which is what makes "how many times did I write this" answerable. Inside a
+    Scrivener project every binder document counts from zero, so the document
+    is part of that position.
     """
     target = fold_preserving_offsets(needle)
     if not target.strip():
         raise StorykeeperError("Give some text to search for.")
 
     allowed = set(doc_types) if doc_types else None
-    seen: set[tuple[str, int]] = set()
+    seen: set[tuple[str, str, int]] = set()
     matches: list[LiteralMatch] = []
 
     for row in store.rows:
@@ -331,7 +333,7 @@ def find_literal(
         start = haystack.find(target)
         while start != -1:
             absolute = int(row.get("start", 0)) + start
-            key = (row["path"], absolute)
+            key = (row["path"], row.get("doc_id", ""), absolute)
             if key not in seen:
                 seen.add(key)
                 matches.append(

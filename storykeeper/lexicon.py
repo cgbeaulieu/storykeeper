@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .textutil import tokenize
+from .textutil import TOKENIZER_VERSION, tokenize
 
 LEXICON_FILE = "lexicon.npz"
 TERMS_FILE = "lexicon-terms.txt"
@@ -113,6 +113,7 @@ def save_lexicon(index_dir: Path, lexicon: Lexicon) -> None:
             doc_len=lexicon.doc_len,
             df=lexicon.df,
             avgdl=np.float64(lexicon.avgdl),
+            tokenizer=np.int64(TOKENIZER_VERSION),
         )
     npz_tmp.replace(index_dir / LEXICON_FILE)
     terms_tmp.replace(index_dir / TERMS_FILE)
@@ -134,8 +135,12 @@ def load_lexicon(index_dir: Path, expected_docs: int) -> Lexicon | None:
             doc_len = data["doc_len"]
             df = data["df"]
             avgdl = float(data["avgdl"])
+            tokenizer = int(data["tokenizer"]) if "tokenizer" in data.files else 1
     except (OSError, ValueError, KeyError):
         return None
+
+    if tokenizer != TOKENIZER_VERSION:
+        return None  # words were split differently; the caller rebuilds it
 
     if len(doc_len) != expected_docs or len(terms) != len(df) or len(ptr) != len(terms) + 1:
         return None
